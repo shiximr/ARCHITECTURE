@@ -1,0 +1,239 @@
+logstash
+
+虚拟机 1.5G 2CPU 20G 硬盘
+
+安装httpd  主机名 web   ip 地址： 192.168.1.100
+
+虚拟机 4G 内存 2CPU	20G硬盘
+安装logstash 主机名logstash ip地址： 192.168.1.20
+配置 /etc/hosts
+配置yum 源
+安装 logstash 依赖包  java-1.8.0-openjdk
+
+vim  /opt/logstash/logstash.conf
+input{
+   stdin{}
+}
+
+filter{
+
+}
+
+output{
+   stdout{}
+}
+
+第一类插件codec
+实验：vim /opt/logstash/logstash.conf
+input{
+   stdin{ codec => "json"}
+}
+
+fileter{
+
+}
+
+output{
+   stdout{ codec=> "rubydebug"}
+}
+
+alias logstash='/opt/logstash/bin/logstash'
+logstash -f /opt/logstash/logstash.conf
+键盘输入json格式数据
+屏幕标准输出 json格式书据
+如：{"a": 1, "b": 2, "c": 3}
+
+[root@logstash logstash]# logstash -f logstash.conf 
+Settings: Default pipeline workers: 2
+Pipeline main started
+{"a": 1, "b": 2, "c": 3}     #输入的是json格式的数据，解码后输出的也是json格式的数据
+{
+             "a" => 1,
+             "b" => 2,
+             "c" => 3,
+      "@version" => "1",
+    "@timestamp" => "2018-12-26T06:49:50.653Z",
+          "host" => "logstash"
+}
+
+adcdewf     #输入的不是json格式的数据，输出解释json格式失败
+{
+       "message" => "adcdewf",
+          "tags" => [
+        [0] "_jsonparsefailure"
+    ],
+      "@version" => "1",
+    "@timestamp" => "2018-12-26T06:49:59.215Z",
+          "host" => "logstash"
+}
+
+input 插件
+从官方帮助文档中去找格式和写配置文件的方法
+标准格式：
+input {
+  file {
+    id => "my_plugin_id"
+  }
+}
+配置：
+/opt/logstash/logstash.conf
+input {
+  file {
+    path => ["/tmp/a.log", "/var/tmp/b.log"]
+  }
+}
+filter{
+
+}
+
+output{
+   stdout{}
+}
+新开丙个终端，一个终端启动logstash 一个终端追加数据进文档
+把数据写入/tmp/a.log文档或者/var/tmp/b.log文档，第一个终端会显示追加的数据
+
+看官方文档，了解sincedb_path  与  start_position 以及 type 参数的作用和用法
+/opt/logstash/logstash.conf
+input {
+  file {
+    path => ["/tmp/a.log", "/var/tmp/b.log"]
+    sincedb_path => "/var/lib/logstash/since.db"
+    start_position => "begining"
+    type => "test log"
+  }
+}
+filter{
+
+}
+
+output{
+   stdout{}
+}
+
+
+sincedb_path    #保持跟踪日志文件的当前位置,如果没有指定sincedb_path，默认会把sincedb_path放在家目录下
+start_position  #Choose where Logstash starts initially reading files: at the beginning or at the end
+                      默认值为end , 值可以为begining  或   end
+type            #给日志的来源打标签
+
+注事事项： input模块，可以有多个file
+
+input tcp&udp插件
+tcp 标准格式：
+input {
+  tcp {
+    id => "my_plugin_id"
+  }
+}
+
+udp 标准格式：
+input {
+  udp {
+    id => "my_plugin_id"
+  }
+}
+
+
+配置文件：
+input {
+  file {
+    path => ["/tmp/a.log", "/var/tmp/b.log"]
+    sincedb_path => "/var/lib/logstash/since.db"
+    start_position => "begining"
+    type => "test log"
+   }
+  tcp {
+    host => "0.0.0.0"
+    mode => "server"
+    port => 8888
+    type => tcplog
+   }
+  udp {
+    port => 8888
+    type => udplog
+   }
+}
+
+filter{
+
+}
+
+output{
+  stdout{ codec => "rubydebug"}
+
+}
+
+
+host 和 mode 的解释
+
+tcp 和 udp shell 重定向
+echo "abcd" > /dev/udp/192.168.1.20/8888
+
+文件描述符：
+系统存在的文件描述符：ls /proc/self/fd  可以看到
+
+exec 8<>/dev/tcp/192.168.1.20/8888
+echo hello >&8
+exec 8<&-
+
+function send() {
+ exec 9<>/dev/tcp/192.168.1.20/8888
+ echo $1 <&9
+ exec 9<&-
+}
+
+man bash 后查找/dev/stdin可以找到相关的帮助
+
+logger 命令
+man logger
+logger -p local0.notice -t HOSTIDM ""  #-p 是日志级别和种类  -t 是日志的标题  “”是日志的正文内容
+
+/etc/rsyslog.conf  增加1行
+local0.info      /var/log/t.log
+重启服务 systemctl restart rsyslog
+
+
+实验2：把日志发送给logstash
+kibana 主机  /etc/rsyslog.conf 增加这一行
+local0.info  @@192.168.1.20:514
+重启服务：systemctl restart rsyslog
+logstash 配置syslog插件
+/opt/logstash/logstash.conf,input模块中添加如下语句：
+syslog {
+   port => 514
+   type => "syslog"
+}
+启动logstash : logstash -f /opt/logstash/logstash.conf
+kibana主机中执行： local0.info -p  local0.info -t "title" "message"
+
+生产环境中的使用案例：
+把主机的 security日志发送给logstash，logstash 收集后过滤并格式化输出放入到elasticsearch
+再通过kibana统计分析。
+把rsyslog 中 的安全日志一行复制后，修改如下：
+authpriv.*  @@192.168.1.20:514
+#意义是把有关安全的日志信息传递给192.168.1.20（logstash主机）
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
